@@ -38,6 +38,7 @@ const conectar = () => {
 			console.log("la conexion a la base de datos es exitosa");
 	});
 }
+conectar();
 //rauters
 app.get('/milanesas', (req, res) => {
 	extraerDatos(milanesas, "milanesas", res)
