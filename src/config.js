@@ -8,3 +8,10 @@ export const DB_HOST =process.env.DB_HOST || "localhost"
 export const DB_PASSWORD =process.env.DB_PASSWORD || ""
 export const DB_PORT =process.env.DB_PORT || "3000"
 export const DB_DATABASE =process.env.DB_DATABASE || "menu-bar.los-primos"
+
+
+console.log(DB_DATABASE);
+console.log(DB_HOST);
+console.log(DB_PASSWORD);
+console.log(DB_PORT);
+console.log(DB_USER);

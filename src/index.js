@@ -31,14 +31,12 @@ const conection = mysql.createConnection({
 	database: DB_DATABASE
 })
 
-const conectar = () => {
-	conection.connect((err) => {
-		if (err) throw err;
-		else
-			console.log("la conexion a la base de datos es exitosa");
-	});
-}
-conectar();
+conection.connect((err) => {
+	if (err) throw err;
+	else
+		console.log("la conexion a la base de datos es exitosa");
+});
+
 //rauters
 app.get('/milanesas', (req, res) => {
 	extraerDatos(milanesas, "milanesas", res)
