@@ -33,7 +33,7 @@ const conection = mysql.createConnection({
 
 const conectar = () => {
 	conection.connect((err) => {
-		if (err) throw err;
+		if (err) console.log("error al conectar la base de datos");
 		else
 			console.log("la conexion a la base de datos es exitosa");
 	});
