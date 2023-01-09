@@ -1,15 +1,10 @@
-// const mysql=require('mysql');
 import mysql from "mysql"
 import expres from "express"
-// const expres=require('express')
-// const _=require('underscore')
 import _ from "underscore"
 import bodyParser from "body-parser"
-// var bodyParser = require('body-parser')
-// const cors=require('cors')
 import cors from "cors"
 const app = expres();
-const PORT = process.env.PORT || 3000;
+// const PORT = process.env.PORT || 3000;
 let milanesas = [], hamburguesas = [], lomitos = [], pizzas = [], papas = [], platos = [], empandas = [], bebidas = [];
 let pedidos = [], pedidosPost;
 app.use(cors())
