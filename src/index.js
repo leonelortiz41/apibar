@@ -19,7 +19,7 @@ import {
 }
 	from "./config.js"
 
-const server = app.listen(DB_PORT, function () {
+app.listen(DB_PORT, function () {
 	console.log(`funcionando en el puerto ${DB_PORT}`)
 });
 
