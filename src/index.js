@@ -32,11 +32,7 @@ const conection = mysql.createConnection({
 })
 
 const conectar = () => {
-	conection.connect((err) => {
-		if (err) throw err;
-		else
-			console.log("la conexion a la base de datos es exitosa");
-	});
+	conection.connect();
 }
 conectar();
 //rauters
