@@ -25,6 +25,7 @@ app.listen(DB_PORT, function () {
 
 //conect to database mysql
 const conection = mysql.createConnection({
+	port: DB_PORT,
 	host: DB_HOST,
 	user: DB_USER,
 	password: DB_PASSWORD,
@@ -71,6 +72,10 @@ app.get('/pedidos', (req, res) => {
 
 })
 
+app.get('/', (req, res) => {
+	res.send("welcome")
+
+})
 app.post('/pedidos', jsonParser, (req, res) => {
 	console.log(req.body)
 	pedidosPost = req.body
@@ -174,4 +179,4 @@ const editarData = function (pedidosPost, id) {
 	pedidos = [];
 }
 
-conection.end();
+// conection.end();
