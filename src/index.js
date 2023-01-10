@@ -39,7 +39,7 @@ conection.connect((err) => {
 	else
 		console.log("la conexion a la base de datos es exitosa");
 });
-
+conection.end();
 //rauters
 app.get('/milanesas', (req, res) => {
 	extraerDatos(milanesas, "milanesas", res)
