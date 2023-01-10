@@ -174,4 +174,4 @@ const editarData = function (pedidosPost, id) {
 	pedidos = [];
 }
 
-// conection.end();
+conection.end();
