@@ -25,7 +25,6 @@ app.listen(DB_PORT, function () {
 
 //conect to database mysql
 const conection = mysql.createConnection({
-	port: DB_PORT,
 	host: DB_HOST,
 	user: DB_USER,
 	password: DB_PASSWORD,
@@ -33,7 +32,10 @@ const conection = mysql.createConnection({
 })
 
 conection.connect((err) => {
-	if (err) throw err;
+	if (err){
+		throw err;
+		console.log(err);
+	} 
 	else
 		console.log("la conexion a la base de datos es exitosa");
 });
