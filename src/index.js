@@ -1,8 +1,8 @@
-import mysql from "mysql"
-import expres from "express"
-import _ from "underscore"
-import bodyParser from "body-parser"
-import cors from "cors"
+const mysql=require('mysql');
+const expres=require('express')
+const _=require('underscore')
+var bodyParser = require('body-parser')
+const cors=require('cors')
 const app = expres();
 // const PORT = process.env.PORT || 3000;
 let milanesas = [], hamburguesas = [], lomitos = [], pizzas = [], papas = [], platos = [], empandas = [], bebidas = [];
