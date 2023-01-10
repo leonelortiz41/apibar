@@ -9,7 +9,7 @@ let milanesas = [], hamburguesas = [], lomitos = [], pizzas = [], papas = [], pl
 let pedidos = [], pedidosPost;
 app.use(cors())
 var jsonParser = bodyParser.json()
-var urlencodedParser = bodyParser.urlencoded({ extended: false })
+// var urlencodedParser = bodyParser.urlencoded({ extended: false })
 import {
 	DB_DATABASE,
 	DB_HOST,
