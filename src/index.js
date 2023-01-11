@@ -5,7 +5,7 @@ import bodyParser from "body-parser"
 import cors from "cors"
 const app = expres();
 // const PORT = process.env.PORT || 3000;
-let milanesas = [], hamburguesas = [], lomitos = [], pizzas = [], papas = [], platos = [], empandas = [], bebidas = [],date;
+let milanesas = [], hamburguesas = [], lomitos = [], pizzas = [], papas = [], platos = [], empandas = [], bebidas = [],date=[];
 let pedidos = [], pedidosPost;
 app.use(cors())
 var jsonParser = bodyParser.json()
