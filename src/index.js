@@ -30,7 +30,7 @@ const conection= mysql2.createConnection({
 	user: DB_USER,
 	password: DB_PASSWORD,
 	database: DB_DATABASE,
-	// port: PORT
+	port: PORT
 })
 
 conection.connect((err) => {
