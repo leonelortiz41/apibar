@@ -75,17 +75,20 @@ app.get('/pedidos', (req, res) => {
 	extraerDatos(pedidos, "pedidos", res)
 
 })
+app.get('/date', (req, res) => {extraerDatos(date, "date", res)})
 
 app.get('/', (req, res) => {
 	res.send("welcome")
 
 })
 app.post('/pedidos', jsonParser, (req, res) => {
-	console.log(req.body)
 	pedidosPost = req.body
 	enviarData(pedidosPost)
 	res.send(req.body)
-
+})
+app.post('/date', jsonParser, (req, res) => {
+	conection.query(`INSERT INTO date (fecha) VALUES ("${fecha}"")`)
+	res.send(req.body)
 })
 app.delete("/pedidos/:id", (req, res) => {
 	const { id } = req.params;
@@ -116,6 +119,9 @@ app.put("/pedidos/:id", jsonParser, (req, res) => {
 app.delete('/pedidos', (req, res) => {
 	pedidos = [];
 	borrarDatos("pedidos")
+})
+app.delete('/date', (req, res) => {
+	conection.query(`TRUNCATE TABLE date`)
 })
 app.use((req, res, next) => {
 	res.status(404).json({
