@@ -11,11 +11,12 @@ app.use(cors())
 var jsonParser = bodyParser.json()
 // var urlencodedParser = bodyParser.urlencoded({ extended: false })
 import {
-	DB_DATABASE,
 	DB_HOST,
+	DB_USER,
+	DB_DATABASE,
 	DB_PASSWORD,
 	DB_PORT,
-	DB_USER
+	PORT
 }
 	from "./config.js"
 
@@ -24,14 +25,13 @@ app.listen(DB_PORT, function () {
 });
 
 //conect to database mysql
-const conection = mysql.createConnection({
+mysql.createConnection({
 	host: DB_HOST,
 	user: DB_USER,
 	password: DB_PASSWORD,
-	database: DB_DATABASE
-})
-
-conection.connect((err) => {
+	database: DB_DATABASE,
+	port: PORT
+}).connect((err) => {
 	if (err){
 		throw err;
 		console.log(err.code);
