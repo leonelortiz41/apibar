@@ -1,4 +1,4 @@
-import mysql from "mysql"
+import mysql2 from "mysql2"
 import expres from "express"
 import _ from "underscore"
 import bodyParser from "body-parser"
@@ -24,8 +24,8 @@ app.listen(DB_PORT, function () {
 	console.log(`funcionando en el puerto ${DB_PORT}`)
 });
 
-//conect to database mysql
-mysql.createConnection({
+//conect to database mysql2
+mysql2.createConnection({
 	host: DB_HOST,
 	user: DB_USER,
 	password: DB_PASSWORD,
