@@ -5,7 +5,7 @@ import bodyParser from "body-parser"
 import cors from "cors"
 const app = expres();
 // const PORT = process.env.PORT || 3000;
-let milanesas = [], hamburguesas = [], lomitos = [], pizzas = [], papas = [], platos = [], empandas = [], bebidas = [];
+let milanesas = [], hamburguesas = [], lomitos = [], pizzas = [], papas = [], platos = [], empandas = [], bebidas = [],date;
 let pedidos = [], pedidosPost;
 app.use(cors())
 var jsonParser = bodyParser.json()
@@ -30,7 +30,7 @@ const conection= mysql2.createConnection({
 	user: DB_USER,
 	password: DB_PASSWORD,
 	database: DB_DATABASE,
-	port: PORT
+	// port: PORT
 })
 
 conection.connect((err) => {
@@ -75,6 +75,7 @@ app.get('/pedidos', (req, res) => {
 	extraerDatos(pedidos, "pedidos", res)
 
 })
+
 app.get('/date', (req, res) => {extraerDatos(date, "date", res)})
 
 app.get('/', (req, res) => {
@@ -82,14 +83,18 @@ app.get('/', (req, res) => {
 
 })
 app.post('/pedidos', jsonParser, (req, res) => {
+	console.log(req.body)
 	pedidosPost = req.body
 	enviarData(pedidosPost)
 	res.send(req.body)
+
 })
+
 app.post('/date', jsonParser, (req, res) => {
 	conection.query(`INSERT INTO date (fecha) VALUES ("${fecha}"")`)
 	res.send(req.body)
 })
+
 app.delete("/pedidos/:id", (req, res) => {
 	const { id } = req.params;
 	_.each(pedidos, (pedido, i) => {
@@ -104,6 +109,11 @@ app.delete("/pedidos/:id", (req, res) => {
 	console.log(req.body)
 	pedidos = []
 })
+
+app.delete('/date', (req, res) => {
+	conection.query(`TRUNCATE TABLE date`)
+})
+
 app.put("/pedidos/:id", jsonParser, (req, res) => {
 	const { id } = req.params;
 	// let {cantidad,cliente,detalle,importe,detalleTicket}=req.body
@@ -119,9 +129,6 @@ app.put("/pedidos/:id", jsonParser, (req, res) => {
 app.delete('/pedidos', (req, res) => {
 	pedidos = [];
 	borrarDatos("pedidos")
-})
-app.delete('/date', (req, res) => {
-	conection.query(`TRUNCATE TABLE date`)
 })
 app.use((req, res, next) => {
 	res.status(404).json({
