@@ -98,7 +98,7 @@ app.post('/pedidos', jsonParser, (req, res) => {
 app.post('/date', jsonParser, (req, res) => {
 	console.log(req.body)
 	fecha = req.body
-	conection.query(`INSERT INTO date (fecha) VALUES ("${fecha}"")`)
+	conection.query(`INSERT INTO date (fecha) VALUES ("${fecha}")`)
 	res.send(req.body)
 })
 
