@@ -76,7 +76,7 @@ app.get('/pedidos', (req, res) => {
 
 })
 
-app.get('/date', (req, res) => { extraerDatos(date, "date", res) })
+app.get('/date', (req, res) => { conection.query(`SELECT * from ${sql}`); res.json() })
 
 app.get('/', (req, res) => {
 	res.send("welcome")
