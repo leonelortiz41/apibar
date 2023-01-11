@@ -5,8 +5,8 @@ import bodyParser from "body-parser"
 import cors from "cors"
 const app = expres();
 // const PORT = process.env.PORT || 3000;
-let milanesas = [], hamburguesas = [], lomitos = [], pizzas = [], papas = [], platos = [], empandas = [], bebidas = [], date = [];
-let pedidos = [], pedidosPost;
+let milanesas = [], hamburguesas = [], lomitos = [], pizzas = [], papas = [], platos = [], empandas = [], bebidas = [];
+let pedidos = [], pedidosPost,date;
 app.use(cors())
 var jsonParser = bodyParser.json()
 // var urlencodedParser = bodyParser.urlencoded({ extended: false })
@@ -91,6 +91,7 @@ app.post('/pedidos', jsonParser, (req, res) => {
 })
 
 app.post('/date', jsonParser, (req, res) => {
+	fecha=req.body
 	conection.query(`INSERT INTO date (fecha) VALUES ("${fecha}"")`)
 	res.send(req.body)
 })
@@ -111,7 +112,6 @@ app.delete("/pedidos/:id", (req, res) => {
 })
 
 app.delete('/date', (req, res) => {
-	date=[];
 	conection.query(`TRUNCATE TABLE date`)
 })
 
