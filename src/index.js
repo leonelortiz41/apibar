@@ -5,7 +5,7 @@ import bodyParser from "body-parser"
 import cors from "cors"
 const app = expres();
 // const PORT = process.env.PORT || 3000;
-let milanesas = [], hamburguesas = [], lomitos = [], pizzas = [], papas = [], platos = [], empandas = [], bebidas = [],date=[];
+let milanesas = [], hamburguesas = [], lomitos = [], pizzas = [], papas = [], platos = [], empandas = [], bebidas = [], date = [];
 let pedidos = [], pedidosPost;
 app.use(cors())
 var jsonParser = bodyParser.json()
@@ -25,19 +25,19 @@ app.listen(DB_PORT, function () {
 });
 
 //conect to database mysql2
-const conection= mysql2.createConnection({
+const conection = mysql2.createConnection({
 	host: DB_HOST,
 	user: DB_USER,
 	password: DB_PASSWORD,
 	database: DB_DATABASE,
-	port: PORT
+	// port: PORT
 })
 
 conection.connect((err) => {
-	if (err){
+	if (err) {
 		throw err;
 		console.log(err.code);
-	} 
+	}
 	else
 		console.log("la conexion a la base de datos es exitosa");
 });
@@ -76,7 +76,7 @@ app.get('/pedidos', (req, res) => {
 
 })
 
-app.get('/date', (req, res) => {extraerDatos(date, "date", res)})
+app.get('/date', (req, res) => { extraerDatos(date, "date", res) })
 
 app.get('/', (req, res) => {
 	res.send("welcome")
@@ -111,6 +111,7 @@ app.delete("/pedidos/:id", (req, res) => {
 })
 
 app.delete('/date', (req, res) => {
+	date=[];
 	conection.query(`TRUNCATE TABLE date`)
 })
 
