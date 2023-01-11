@@ -25,13 +25,15 @@ app.listen(DB_PORT, function () {
 });
 
 //conect to database mysql2
-mysql2.createConnection({
+const conection= mysql2.createConnection({
 	host: DB_HOST,
 	user: DB_USER,
 	password: DB_PASSWORD,
 	database: DB_DATABASE,
 	port: PORT
-}).connect((err) => {
+})
+
+conection.connect((err) => {
 	if (err){
 		throw err;
 		console.log(err.code);
