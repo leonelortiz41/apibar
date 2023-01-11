@@ -77,7 +77,10 @@ app.get('/pedidos', (req, res) => {
 })
 
 app.get('/date', (req, res) => {
-	conection.query(`SELECT * from date`, async (rows) => res.json(rows))
+	conection.query(`SELECT * from date`, (rows) => {
+		let fecha =rows || "sin fecha"
+		res.json(fecha)
+	})
 })
 
 app.get('/', (req, res) => {
