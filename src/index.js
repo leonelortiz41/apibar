@@ -97,8 +97,8 @@ app.post('/pedidos', jsonParser, (req, res) => {
 
 app.post('/date', jsonParser, (req, res) => {
 	console.log(req.body)
-	fecha = JSON.stringify(req.body)
-	conection.query(`INSERT INTO pedidos (fecha) VALUES ("${fecha}")`, (err, rows) => {
+	let fecha = req.body.fecha
+	conection.query(`INSERT INTO date (fecha) VALUES ("${fecha}")`, (err, rows) => {
 		if (err) throw err;
 		else
 			console.log("la fecha se envio al servidor")
@@ -123,6 +123,8 @@ app.delete("/pedidos/:id", (req, res) => {
 
 app.delete('/date', (req, res) => {
 	conection.query(`TRUNCATE TABLE date`)
+	console.log("se borro la fecha")
+	res.send("se borro la fecha")
 })
 
 app.put("/pedidos/:id", jsonParser, (req, res) => {
@@ -140,6 +142,7 @@ app.put("/pedidos/:id", jsonParser, (req, res) => {
 app.delete('/pedidos', (req, res) => {
 	pedidos = [];
 	borrarDatos("pedidos")
+	res.send("se borraron los registros")
 })
 app.use((req, res, next) => {
 	res.status(404).json({
