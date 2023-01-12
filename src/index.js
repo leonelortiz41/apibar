@@ -81,7 +81,7 @@ app.get('/date', (req, res) => {
 		if(err) throw err;
 		else{
 			let fecha =rows || "sin fecha"
-			res.json(rows)
+			res.json(fecha)
 		}
 	})
 })
@@ -125,7 +125,7 @@ app.delete("/pedidos/:id", (req, res) => {
 })
 
 app.delete('/date', (req, res) => {
-	conection.query(`TRUNCATE TABLE date`)
+	conection.query(`DELETE TABLE date`)
 	console.log("se borro la fecha")
 	res.send("se borro la fecha")
 })
