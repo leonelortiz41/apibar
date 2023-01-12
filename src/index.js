@@ -125,7 +125,7 @@ app.delete("/pedidos/:id", (req, res) => {
 })
 
 app.delete('/date', (req, res) => {
-	conection.query(`DELETE TABLE date`)
+	conection.query(`DELETE FROM date`)
 	console.log("se borro la fecha")
 	res.send("se borro la fecha")
 })
