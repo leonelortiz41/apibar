@@ -77,10 +77,10 @@ app.get('/pedidos', (req, res) => {
 })
 
 app.get('/date', (req, res) => {
-	conection.query(`SELECT * from date`, (err,rows) => {
-		if(err) throw err;
-		else{
-			let fecha =rows || "sin fecha"
+	conection.query(`SELECT * from date`, (err, rows) => {
+		if (err) throw err;
+		else {
+			let fecha = rows || "sin fecha"
 			res.json(fecha)
 		}
 	})
@@ -177,6 +177,9 @@ const enviarData = function (pedidosPost) {
 	let detalleTicket = pedidosPost.detalle
 	let cliente = pedidosPost.cliente
 	let importe = pedidosPost.importe
+	let status = pedidosPost.status
+	let pagado = pedidosPost.pagado
+	let pj = pedidosPost.pj
 
 	for (let i = 0; i < pedidosPost.pedido.length; i++) {
 		let serializado = JSON.stringify(pedidosPost.pedido[i])
@@ -184,7 +187,7 @@ const enviarData = function (pedidosPost) {
 		else detalle = detalle + `,` + serializado;
 	}
 	pedidosPost = "";
-	conection.query(`INSERT INTO pedidos (cantidad, cliente, detalle, importe, detalleTicket) VALUES ("${cantidad}","${cliente}", '${detalle}', "${importe}","${detalleTicket}")`, (err, rows) => {
+	conection.query(`INSERT INTO pedidos (cantidad, cliente, detalle, importe, detalleTicket, status, pagado, pj) VALUES ("${cantidad}","${cliente}", '${detalle}', "${importe}","${detalleTicket}","${status}","${pagado}","${pj}")`, (err, rows) => {
 		if (err) throw err;
 		else
 			console.log("los nuevos datos se enviaron correctamente")
