@@ -177,7 +177,7 @@ const enviarData = function (pedidosPost) {
 	let detalleTicket = pedidosPost.detalle
 	let cliente = pedidosPost.cliente
 	let importe = pedidosPost.importe
-	let status = pedidosPost.status
+	let statu = pedidosPost.statu
 	let pagado = pedidosPost.pagado
 	let pj = pedidosPost.pj
 
@@ -187,7 +187,7 @@ const enviarData = function (pedidosPost) {
 		else detalle = detalle + `,` + serializado;
 	}
 	pedidosPost = "";
-	conection.query(`INSERT INTO pedidos (cantidad, cliente, detalle, importe, detalleTicket, status, pagado, pj) VALUES ("${cantidad}","${cliente}", '${detalle}', "${importe}","${detalleTicket}","${status}","${pagado}","${pj}")`, (err, rows) => {
+	conection.query(`INSERT INTO pedidos (cantidad, cliente, detalle, importe, detalleTicket, statu, pagado, pj) VALUES ("${cantidad}","${cliente}", '${detalle}', "${importe}","${detalleTicket}","${statu}","${pagado}","${pj}")`, (err, rows) => {
 		if (err) throw err;
 		else
 			console.log("los nuevos datos se enviaron correctamente")
