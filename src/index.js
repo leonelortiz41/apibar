@@ -147,7 +147,7 @@ app.put("/pj/:id", jsonParser, (req, res) => {
 	const { id } = req.params;
 	let pj = req.body
 	console.log("se realizo metodo put y los nuevos datos son:",pj);
-	conection.query(`UPDATE pedidos SET pj = '${pj}' WHERE pedidos.id = ${id}`, (err, rows) => {
+	conection.query(`UPDATE pedidos SET pj = '${pj.pj}' WHERE pedidos.id = ${id}`, (err, rows) => {
 		if (err) throw err;
 		else
 			console.log("los nuevos datos se actualizaron correctamente")
