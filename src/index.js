@@ -142,6 +142,18 @@ app.put("/pedidos/:id", jsonParser, (req, res) => {
 	res.send(req.body)
 	// pedidos=[]
 })
+
+app.put("/pj/:id", jsonParser, (req, res) => {
+	const { id } = req.params;
+	let pj = req.body
+	console.log("se realizo metodo put y los nuevos datos son:",pj);
+	conection.query(`UPDATE pedidos SET pj = '${pj}' WHERE pedidos.id = ${id}`, (err, rows) => {
+		if (err) throw err;
+		else
+			console.log("los nuevos datos se actualizaron correctamente")
+	})
+	res.send(req.body)
+})
 app.delete('/pedidos', (req, res) => {
 	pedidos = [];
 	borrarDatos("pedidos")
