@@ -154,6 +154,17 @@ app.put("/pj/:id", jsonParser, (req, res) => {
 	})
 	res.send(req.body)
 })
+app.put("/statu/:id", jsonParser, (req, res) => {
+	const { id } = req.params;
+	let statu = req.body
+	console.log("se realizo metodo put y los nuevos datos son:",statu);
+	conection.query(`UPDATE pedidos SET statu = '${statu.statu}' WHERE pedidos.id = ${id}`, (err, rows) => {
+		if (err) throw err;
+		else
+			console.log("los nuevos datos se actualizaron correctamente")
+	})
+	res.send(req.body)
+})
 app.put("/pagado/:id", jsonParser, (req, res) => {
 	const { id } = req.params;
 	let pagado = req.body
