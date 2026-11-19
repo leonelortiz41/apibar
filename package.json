@@ -19,6 +19,7 @@
     "express": "^4.18.2",
     "mysql": "^2.18.1",
     "mysql2": "^2.3.3",
+    "nodemailer": "^7.0.12",
     "underscore": "^1.13.3"
   },
   "devDependencies": {
