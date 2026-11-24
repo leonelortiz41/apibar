@@ -1,475 +1,560 @@
-import mysql2 from "mysql2"
-import expres from "express"
-import _ from "underscore"
-import bodyParser from "body-parser"
-import cors from "cors"
-import nodemailer from 'nodemailer';
-const app = expres();
-// const PORT = process.env.PORT || 3000;
-let milanesas = [], hamburguesas = [], lomitos = [], pizzas = [], papas = [], platos = [], empanadas = [], bebidas = [];
-let pedidos = [], pedidosPost, date;
-app.use(cors())
-var jsonParser = bodyParser.json()
-// var urlencodedParser = bodyParser.urlencoded({ extended: false })
+import mysql2 from "mysql2";
+import express from "express";
+import cors from "cors";
+import nodemailer from "nodemailer";
 import {
-	DB_HOST,
-	DB_USER,
-	DB_DATABASE,
-	DB_PASSWORD,
-	DB_PORT,
-	PORT
-}
-	from "./config.js"
+  DB_HOST,
+  DB_USER,
+  DB_DATABASE,
+  DB_PASSWORD,
+  DB_PORT,
+  PORT
+} from "./config.js";
 
-app.listen(PORT, function () {
-	console.log(`funcionando en el puerto ${PORT}`)
-});
+const app = express();
 
-//conect to database mysql2
+const CATEGORIAS_PERMITIDAS = new Set([
+  "milanesas",
+  "hamburguesas",
+  "lomitos",
+  "pizzas",
+  "empanadas",
+  "papas",
+  "platos",
+  "bebidas"
+]);
+
+const pedidosPorIP = new Map();
+const pedidosPorTelefono = new Map();
+
+app.use(cors());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
 const conection = mysql2.createConnection({
-	host: DB_HOST,
-	user: DB_USER,
-	password: DB_PASSWORD,
-	database: DB_DATABASE,
-	port: DB_PORT
-})
+  host: DB_HOST,
+  user: DB_USER,
+  password: DB_PASSWORD,
+  database: DB_DATABASE,
+  port: DB_PORT
+});
 
 conection.connect((err) => {
-	if (err) {
-		throw err;
-		console.log(err.code);
-	}
-	else
-		console.log("la conexion a la base de datos es exitosa");
+  if (err) {
+    console.error("Error de conexión a MySQL:", err);
+    process.exit(1);
+  }
+  console.log("La conexión a la base de datos es exitosa");
 });
 
+const queryAsync = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    conection.query(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
 
-app.use(expres.json({ limit: '50mb' }));
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(expres.urlencoded({ limit: '50mb', extended: true }));
+const limpiarTelefono = (tel = "") => String(tel).replace(/\D/g, "");
 
-app.post('/enviar-reporte', async (req, res) => {
-	const { pdfBase64, fecha } = req.body;
+const esTelefonoValido = (tel = "") => {
+  const limpio = limpiarTelefono(tel);
+  if (limpio.length < 8 || limpio.length > 13) return false;
+  if (/^(.)\1+$/.test(limpio)) return false;
+  if (["12345678", "123456789", "1234567890", "0987654321"].includes(limpio)) {
+    return false;
+  }
+  return true;
+};
 
-	const transporter = nodemailer.createTransport({
-		service: 'gmail',
-		auth: {
-			user: 'c.leonelortiz10@gmail.com',
-			pass: 'weqr xjfb lyzn upiq' // No es la clave normal, es una especial de Google
-		}
-	});
-	console.log("llego a la ruta del servidor para enviar el mail")
-	const mailOptions = {
-		from: 'Bar Los Primos <c.leonelortiz10@gmail.com>',
-		to: 'zulmalugones21@gmail.com, carlitoleonel@gmail.com',
-		// zulmalugones21@gmail.com
-		subject: `Cierre de Caja - ${fecha}`,
-		text: 'Se adjunta el reporte de cierre de caja en formato PDF.',
-		attachments: [{
-			filename: `CIERRE_${fecha}.pdf`,
-			content: pdfBase64,
-			encoding: 'base64'
-		}]
-	};
+const registrarIntento = (mapa, clave, ventanaMs = 15 * 60 * 1000) => {
+  const ahora = Date.now();
+  const previos = (mapa.get(clave) || []).filter((ts) => ahora - ts < ventanaMs);
+  previos.push(ahora);
+  mapa.set(clave, previos);
+  return previos.length;
+};
 
-	try {
-		await transporter.sendMail(mailOptions);
-		res.status(200).send("Correo enviado");
-	} catch (error) {
-		res.status(500).send(error.message);
-		console.error("Error al enviar correo:", error);
-	}
+const parseIdsPausados = (raw) => {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+app.get("/", (req, res) => {
+  res.send("welcome");
 });
 
-app.get('/milanesas', (req, res) => {
-	extraerDatos(milanesas, "milanesas", res)
-})
-app.get('/lomitos', (req, res) => {
-	extraerDatos(lomitos, "lomitos", res)
+// --- ENVÍO DE REPORTE ---
+app.post("/enviar-reporte", async (req, res) => {
+  const { pdfBase64, fecha } = req.body;
 
-})
-app.get('/hamburguesas', (req, res) => {
-	extraerDatos(hamburguesas, "hamburguesas", res)
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: "c.leonelortiz10@gmail.com",
+      pass: "weqr xjfb lyzn upiq"
+    }
+  });
 
-})
-app.get('/pizzas', (req, res) => {
-	extraerDatos(pizzas, "pizzas", res)
+  const mailOptions = {
+    from: "Bar Los Primos <c.leonelortiz10@gmail.com>",
+    to: "zulmalugones21@gmail.com, carlitoleonel@gmail.com",
+    subject: `Cierre de Caja - ${fecha}`,
+    text: "Se adjunta el reporte de cierre de caja en formato PDF.",
+    attachments: [
+      {
+        filename: `CIERRE_${fecha}.pdf`,
+        content: pdfBase64,
+        encoding: "base64"
+      }
+    ]
+  };
 
-})
-app.get('/papas', (req, res) => {
-	extraerDatos(papas, "papas", res)
-
-})
-app.get('/platos', (req, res) => {
-	extraerDatos(platos, "platos", res)
-
-})
-app.get('/empanadas', (req, res) => {
-	extraerDatos(empanadas, "empanadas", res)
-
-})
-app.get('/bebidas', (req, res) => {
-	extraerDatos(bebidas, "bebidas", res)
-
-})
-app.get('/pedidos', (req, res) => {
-	extraerDatos(pedidos, "pedidos", res)
-
-})
-
-app.get('/date', (req, res) => {
-	conection.query(`SELECT * from date`, (err, rows) => {
-		if (err) throw err;
-		else {
-			let fecha = rows || "sin fecha"
-			res.json(fecha)
-		}
-	})
-})
-
-app.get('/', (req, res) => {
-	res.send("welcome")
-
-})
-app.post('/pedidos', jsonParser, (req, res) => {
-	console.log("err   jnsasaj...")
-	console.log(req.body)
-	pedidosPost = req.body
-	enviarData(pedidosPost)
-	res.send(req.body)
-
-})
-
-app.post('/date', jsonParser, (req, res) => {
-	console.log(req.body)
-	let fecha = req.body.fecha
-	conection.query(`INSERT INTO date (fecha) VALUES ("${fecha}")`, (err, rows) => {
-		if (err) throw err;
-		else
-			console.log("la fecha se envio al servidor")
-	})
-	res.send(req.body)
-})
-
-app.delete("/pedidos/:id", (req, res) => {
-	const { id } = req.params;
-
-	// 1. Ejecutamos la consulta directamente usando el ID de la URL
-	conection.query('DELETE FROM pedidos WHERE id = ?', [id], (error, results) => {
-		if (error) {
-			console.error("Error al borrar de la DB:", error);
-			return res.status(500).json({ error: "Error al borrar el pedido" });
-		}
-
-		// 2. Si usas una variable local 'pedidos' para caché, debes filtrar el elemento borrado
-		// NO hagas pedidos = [], eso borra TODOS los pedidos de la memoria
-		pedidos = pedidos.filter(p => p.id != id);
-
-		console.log(`Pedido #${id} borrado correctamente`);
-
-		// 3. Respondemos éxito
-		res.json({ mensaje: "Pedido eliminado", id });
-	});
+  try {
+    await transporter.sendMail(mailOptions);
+    res.status(200).send("Correo enviado");
+  } catch (error) {
+    console.error("Error al enviar correo:", error);
+    res.status(500).send(error.message);
+  }
 });
 
-app.delete('/date', (req, res) => {
-	conection.query(`DELETE FROM date`)
-	console.log("se borro la fecha")
-	res.send("se borro la fecha")
-})
-
-app.put("/pedidos/:id", jsonParser, (req, res) => {
-	const { id } = req.params;
-	// let {cantidad,cliente,detalle,importe,detalleTicket}=req.body
-	pedidosPost = req.body
-	console.log("se realizo metodo put y los nuevos datos son:");
-	console.log(req.body)
-
-	editarData(pedidosPost, id);
-
-	res.send(req.body)
-	// pedidos=[]
-})
-
-
-app.put("/pj/:id", jsonParser, (req, res) => {
-	const { id } = req.params;
-	let pj = req.body
-	console.log("se realizo metodo put y los nuevos datos son:", pj);
-	conection.query(`UPDATE pedidos SET pj = '${pj.pj}' WHERE pedidos.id = ${id}`, (err, rows) => {
-		if (err) throw err;
-		else
-			console.log("los nuevos datos se actualizaron correctamente")
-	})
-	res.send(req.body)
-})
-app.put("/statu/:id", jsonParser, (req, res) => {
-	const { id } = req.params;
-	let statu = req.body
-	console.log("se realizo metodo put y los nuevos datos son:", statu);
-	conection.query(`UPDATE pedidos SET statu = '${statu.statu}' WHERE pedidos.id = ${id}`, (err, rows) => {
-		if (err) throw err;
-		else
-			console.log("los nuevos datos se actualizaron correctamente")
-	})
-	res.send(req.body)
-})
-app.put("/pagado/:id", jsonParser, (req, res) => {
-	const { id } = req.params;
-	let pagado = req.body
-	console.log("se realizo metodo put y los nuevos datos son:", pagado);
-	conection.query(`UPDATE pedidos SET pagado = '${pagado.pagado}' WHERE pedidos.id = ${id}`, (err, rows) => {
-		if (err) throw err;
-		else
-			console.log("los nuevos datos se actualizaron correctamente")
-	})
-	res.send(req.body)
-})
-
-app.delete('/pedidos', (req, res) => {
-	pedidos = [];
-	borrarDatos("pedidos")
-	res.send("se borraron los registros")
-})
-
-// Obtener todos los repartidores
-app.get('/repartidores', (req, res) => {
-	let repartidores = []; // Variable temporal para la función extraerDatos
-	extraerDatos(repartidores, "repartidores", res);
+// --- CONFIGURACIÓN APP DE CLIENTES ---
+app.get("/configuracion-web", async (req, res) => {
+  try {
+    const rows = await queryAsync("SELECT * FROM configuracion_web WHERE id = 1 LIMIT 1");
+    if (!rows.length) {
+      return res.json({
+        tiendaAbierta: true,
+        envioActivo: true,
+        retiroActivo: true,
+        mensajeCierre: "Estamos cerrados por el momento. Volvé a intentar más tarde.",
+        idsPausadosWeb: []
+      });
+    }
+    const row = rows[0];
+    res.json({
+      tiendaAbierta: Boolean(row.tienda_abierta),
+      envioActivo: Boolean(row.envio_activo),
+      retiroActivo: Boolean(row.retiro_activo),
+      mensajeCierre: row.mensaje_cierre || "",
+      idsPausadosWeb: parseIdsPausados(row.ids_pausados_web)
+    });
+  } catch (err) {
+    console.error("Error en GET /configuracion-web:", err);
+    res.status(500).json({ error: "Error al leer configuración web" });
+  }
 });
 
-// Agregar un nuevo repartidor
-app.post('/repartidores', (req, res) => {
-	console.log("---------------------------");
-	console.log("PETICIÓN RECIBIDA EN /repartidores");
-	console.log("BODY:", req.body);
+app.put("/configuracion-web", async (req, res) => {
+  try {
+    const {
+      tiendaAbierta = true,
+      envioActivo = true,
+      retiroActivo = true,
+      mensajeCierre = "Estamos cerrados por el momento. Volvé a intentar más tarde.",
+      idsPausadosWeb = []
+    } = req.body || {};
 
-	const { nombre } = req.body;
+    const pausadosLimpios = Array.isArray(idsPausadosWeb) ? idsPausadosWeb : [];
 
-	if (!nombre) {
-		console.log("ERROR: Nombre no recibido");
-		return res.status(400).send("Falta el nombre");
-	}
+    await queryAsync(
+      `INSERT INTO configuracion_web
+        (id, tienda_abierta, envio_activo, retiro_activo, mensaje_cierre, ids_pausados_web)
+       VALUES (1, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+        tienda_abierta = VALUES(tienda_abierta),
+        envio_activo = VALUES(envio_activo),
+        retiro_activo = VALUES(retiro_activo),
+        mensaje_cierre = VALUES(mensaje_cierre),
+        ids_pausados_web = VALUES(ids_pausados_web)`,
+      [
+        tiendaAbierta ? 1 : 0,
+        envioActivo ? 1 : 0,
+        retiroActivo ? 1 : 0,
+        String(mensajeCierre).trim(),
+        JSON.stringify(pausadosLimpios)
+      ]
+    );
 
-	const query = `INSERT INTO repartidores (nombre) VALUES ("${nombre}")`;
-	conection.query(query, (err, rows) => {
-		if (err) {
-			console.error("ERROR SQL:", err);
-			res.status(500).send("Error de DB");
-		} else {
-			console.log("Repartidor insertado con ID:", rows.insertId);
-			res.status(201).json({ id: rows.insertId, nombre });
-		}
-	});
+    res.json({
+      ok: true,
+      tiendaAbierta: Boolean(tiendaAbierta),
+      envioActivo: Boolean(envioActivo),
+      retiroActivo: Boolean(retiroActivo),
+      mensajeCierre: String(mensajeCierre).trim(),
+      idsPausadosWeb: pausadosLimpios
+    });
+  } catch (err) {
+    console.error("Error en PUT /configuracion-web:", err);
+    res.status(500).json({ error: "Error al guardar configuración web" });
+  }
 });
 
-// Eliminar un repartidor
-app.delete('/repartidores/:id', (req, res) => {
-	const { id } = req.params;
-	conection.query(`DELETE FROM repartidores WHERE id = ${id}`, (err, rows) => {
-		if (err) throw err;
-		res.status(200).send("Repartidor eliminado");
-	});
-});
-// Editar nombre de repartidor
-// 1. COLOCA ESTO ARRIBA DE LAS RUTAS DINÁMICAS (/:product/:id)
-app.put('/repartidores/:id', (req, res) => {
-	const { id } = req.params;
-	const { nombre } = req.body;
-
-	console.log("Editando repartidor ID:", id, "Nuevo nombre:", nombre);
-
-	if (!nombre) return res.status(400).send("Falta el nombre");
-
-	// SQL corregido: Solo actualiza nombre, no busca la columna precio
-	const query = `UPDATE repartidores SET nombre = "${nombre.toUpperCase()}" WHERE id = ${id}`;
-
-	conection.query(query, (err, rows) => {
-		if (err) {
-			console.error("Error SQL:", err);
-			return res.status(500).send("Error al actualizar");
-		}
-		res.status(200).send("Repartidor actualizado");
-	});
+// --- PEDIDOS ---
+app.get("/pedidos", async (req, res) => {
+  try {
+    const rows = await queryAsync("SELECT * FROM pedidos");
+    res.json(rows);
+  } catch (err) {
+    console.error("Error en GET /pedidos:", err);
+    res.status(500).send("Error de servidor");
+  }
 });
 
+app.post("/pedidos", async (req, res) => {
+  try {
+    const body = req.body || {};
 
-// --- GESTIÓN DE CONFIGURACIÓN (ADICIONES Y COMISIONES) ---
+    // 1. Honeypot anti-bots
+    if (body.honeypot && String(body.honeypot).trim() !== "") {
+      return res.status(200).json({ ok: true, ignorado: true });
+    }
 
-// Obtener todos los ajustes
-app.get('/configuracion', (req, res) => {
-	// Usamos la función auxiliar que ya tienes
-	extraerDatos([], "configuracion", res);
+    // 2. Si viene desde la tienda web, validar teléfono y rate limit
+    const esPedidoWeb = body.origen === "WEB" || body.telefono !== undefined;
+    if (esPedidoWeb) {
+      if (!esTelefonoValido(body.telefono)) {
+        return res.status(400).json({
+          error: "Ingresá un número de teléfono válido con código de área."
+        });
+      }
+
+      const ip =
+        req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+        req.ip ||
+        "sin-ip";
+      const telLimpio = limpiarTelefono(body.telefono);
+
+      if (registrarIntento(pedidosPorIP, ip) > 3 || registrarIntento(pedidosPorTelefono, telLimpio) > 3) {
+        return res.status(429).json({
+          error: "Se alcanzó el límite de pedidos recientes. Esperá unos minutos o llamá al local."
+        });
+      }
+    }
+
+    const items = Array.isArray(body.pedido) ? body.pedido : [];
+    const detalle = items.map((item) => JSON.stringify(item)).join(",");
+
+    await queryAsync(
+      `INSERT INTO pedidos
+        (cantidad, cliente, detalle, importe, detalleTicket, statu, pagado, pj)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        body.cantidad ?? 0,
+        body.cliente ?? "",
+        detalle,
+        body.importe ?? 0,
+        body.detalleTicket ?? "",
+        body.statu ?? "0",
+        body.pagado ?? "0",
+        body.pj ?? ""
+      ]
+    );
+
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    console.error("Error en POST /pedidos:", err);
+    res.status(500).json({ error: "Error al guardar el pedido" });
+  }
 });
 
-// Agregar o Actualizar configuración (Upsert)
-app.post('/configuracion', jsonParser, (req, res) => {
-	const { atributo, valor, tipo } = req.body;
+app.put("/pedidos/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const body = req.body || {};
+    const items = Array.isArray(body.pedido) ? body.pedido : [];
+    const detalle = items.map((item) => JSON.stringify(item)).join(",");
 
-	// Validamos que lleguen los datos necesarios (valor puede ser 0, por eso checkeamos undefined)
-	if (!atributo || valor === undefined || !tipo) {
-		return res.status(400).send("Faltan datos: atributo, valor y tipo son obligatorios");
-	}
+    await queryAsync(
+      `UPDATE pedidos
+       SET cliente = ?, detalle = ?, importe = ?, detalleTicket = ?, cantidad = ?
+       WHERE id = ?`,
+      [
+        body.cliente ?? "",
+        detalle,
+        body.importe ?? 0,
+        body.detalleTicket ?? "",
+        body.cantidad ?? 0,
+        id
+      ]
+    );
 
-	// Usamos ON DUPLICATE KEY UPDATE para manejar el insert/update automáticamente
-	// IMPORTANTE: La columna 'atributo' debe ser UNIQUE en tu tabla MySQL
-	const query = `
-        INSERT INTO configuracion (atributo, valor, tipo) 
-        VALUES ("${atributo.toUpperCase()}", "${valor}", "${tipo.toLowerCase()}")
-        ON DUPLICATE KEY UPDATE 
-            valor = "${valor}", 
-            tipo = "${tipo.toLowerCase()}"
-    `;
-
-	conection.query(query, (err, rows) => {
-		if (err) {
-			console.error("Error en POST /configuracion:", err);
-			return res.status(500).send("Error de base de datos");
-		}
-
-		// Si rows.affectedRows es 1 fue Insert, si es 2 fue Update
-		const status = rows.affectedRows === 1 ? 201 : 200;
-		res.status(status).json({
-			id: rows.insertId || null,
-			atributo,
-			valor,
-			tipo
-		});
-	});
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Error en PUT /pedidos/:id:", err);
+    res.status(500).send("Error al actualizar el pedido");
+  }
 });
 
-// Eliminar ajuste
-app.delete('/configuracion/:id', (req, res) => {
-	const { id } = req.params;
-	conection.query(`DELETE FROM configuracion WHERE id = ${id}`, (err, rows) => {
-		if (err) {
-			console.error(err);
-			return res.status(500).send("Error al eliminar");
-		}
-		res.status(200).send("Configuración eliminada");
-	});
+app.delete("/pedidos/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await queryAsync("DELETE FROM pedidos WHERE id = ?", [id]);
+    res.json({ mensaje: "Pedido eliminado", id });
+  } catch (err) {
+    console.error("Error al borrar de la DB:", err);
+    res.status(500).json({ error: "Error al borrar el pedido" });
+  }
 });
 
-// --- RUTA PARA AGREGAR PRODUCTO NUEVO ---
-app.post('/:product', jsonParser, (req, res) => {
-	const { product } = req.params;
-	const { nombre, precio } = req.body;
-
-	// Validamos que el nombre y precio existan
-	if (!nombre || !precio) return res.status(400).send("Faltan datos");
-
-	const query = `INSERT INTO ${product} (nombre, precio) VALUES ("${nombre}", "${precio}")`;
-
-	conection.query(query, (err, rows) => {
-		if (err) {
-			console.error(err);
-			res.status(500).send("Error al insertar");
-		} else {
-			console.log(`Nuevo item agregado a ${product}`);
-			res.status(201).json({ id: rows.insertId, nombre, precio });
-		}
-	});
+app.delete("/pedidos", async (req, res) => {
+  try {
+    await queryAsync("TRUNCATE TABLE pedidos");
+    res.send("se borraron los registros");
+  } catch (err) {
+    console.error("Error al truncar pedidos:", err);
+    res.status(500).send("Error al borrar pedidos");
+  }
 });
 
-// --- RUTA PARA BORRAR PRODUCTO ---
-app.delete('/:product/:id', (req, res) => {
-	const { product, id } = req.params;
-
-	const query = `DELETE FROM ${product} WHERE id = ${id}`;
-
-	conection.query(query, (err, rows) => {
-		if (err) {
-			console.error(err);
-			res.status(500).send("Error al eliminar");
-		} else {
-			console.log(`Item ${id} eliminado de ${product}`);
-			res.status(200).send("Eliminado correctamente");
-		}
-	});
+app.put("/pj/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await queryAsync("UPDATE pedidos SET pj = ? WHERE id = ?", [req.body?.pj ?? "", id]);
+    res.json(req.body);
+  } catch (err) {
+    console.error("Error en PUT /pj/:id:", err);
+    res.status(500).send("Error al actualizar pj");
+  }
 });
 
-app.put("/:product/:id", jsonParser, (req, res) => {
-	const { product, id } = req.params;
-	let newPrice = req.body
-	console.log(product)
-	console.log("se realizo metodo put y los nuevos datos son:", newPrice);
-	conection.query(`UPDATE ${product} SET precio = '${newPrice.precio}' WHERE ${product}.id = ${id}`, (err, rows) => {
-		if (err) throw err;
-		else
-			console.log("los nuevos datos se actualizaron correctamente")
-	})
-	res.send(req.body)
-})
+app.put("/statu/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await queryAsync("UPDATE pedidos SET statu = ? WHERE id = ?", [req.body?.statu ?? "", id]);
+    res.json(req.body);
+  } catch (err) {
+    console.error("Error en PUT /statu/:id:", err);
+    res.status(500).send("Error al actualizar statu");
+  }
+});
 
-app.use((req, res, next) => {
-	res.status(404).json({
-		message: "no se obtuvo respuesta..."
-	})
-})
+app.put("/pagado/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await queryAsync("UPDATE pedidos SET pagado = ? WHERE id = ?", [req.body?.pagado ?? "", id]);
+    res.json(req.body);
+  } catch (err) {
+    console.error("Error en PUT /pagado/:id:", err);
+    res.status(500).send("Error al actualizar pagado");
+  }
+});
 
-//funciones
+// --- FECHA ---
+app.get("/date", async (req, res) => {
+  try {
+    const rows = await queryAsync("SELECT * FROM date");
+    res.json(rows || "sin fecha");
+  } catch (err) {
+    console.error("Error en GET /date:", err);
+    res.status(500).send("Error al obtener fecha");
+  }
+});
 
-const extraerDatos = function (table, sql, res) {
-	conection.query(`SELECT * from ${sql}`, (err, rows) => {
-		if (err) {
-			console.error(err);
-			res.status(500).send("Error de servidor");
-		} else {
-			// Devolvemos directamente las filas de la base de datos
-			res.json(rows);
-		}
-	});
-}
+app.post("/date", async (req, res) => {
+  try {
+    const { fecha } = req.body || {};
+    await queryAsync("INSERT INTO date (fecha) VALUES (?)", [fecha]);
+    res.json(req.body);
+  } catch (err) {
+    console.error("Error en POST /date:", err);
+    res.status(500).send("Error al guardar fecha");
+  }
+});
 
-const borrarDatos = function (sql) {
-	conection.query(`TRUNCATE TABLE pedidos`)
-	console.log("se borraron todos los registros")
-}
-const enviarData = function (pedidosPost) {
-	let cantidad = pedidosPost.cantidad;
-	let detalle = "";
-	let detalleTicket = pedidosPost.detalle
-	let cliente = pedidosPost.cliente
-	let importe = pedidosPost.importe
-	let statu = pedidosPost.statu
-	let pagado = pedidosPost.pagado
-	let pj = pedidosPost.pj
+app.delete("/date", async (req, res) => {
+  try {
+    await queryAsync("DELETE FROM date");
+    res.send("se borro la fecha");
+  } catch (err) {
+    console.error("Error en DELETE /date:", err);
+    res.status(500).send("Error al borrar fecha");
+  }
+});
 
-	for (let i = 0; i < pedidosPost.pedido.length; i++) {
-		let serializado = JSON.stringify(pedidosPost.pedido[i])
-		if (detalle == "") detalle = serializado;
-		else detalle = detalle + `,` + serializado;
-	}
-	pedidosPost = "";
-	conection.query(`INSERT INTO pedidos (cantidad, cliente, detalle, importe, detalleTicket, statu, pagado, pj) VALUES ("${cantidad}","${cliente}", '${detalle}', "${importe}","${detalleTicket}","${statu}","${pagado}","${pj}")`, (err, rows) => {
-		if (err) throw err;
-		else
-			console.log("los nuevos datos se enviaron correctamente")
-	})
-	pedidos = [];
-}
+// --- REPARTIDORES ---
+app.get("/repartidores", async (req, res) => {
+  try {
+    const rows = await queryAsync("SELECT * FROM repartidores");
+    res.json(rows);
+  } catch (err) {
+    console.error("Error en GET /repartidores:", err);
+    res.status(500).send("Error de servidor");
+  }
+});
 
-const editarData = function (pedidosPost, id) {
-	let cantidad = pedidosPost.cantidad;
-	let detalle = "";
-	let detalleTicket = pedidosPost.detalle
-	let cliente = pedidosPost.cliente
-	let importe = pedidosPost.importe
+app.post("/repartidores", async (req, res) => {
+  try {
+    const { nombre } = req.body || {};
+    if (!nombre) return res.status(400).send("Falta el nombre");
+    const result = await queryAsync("INSERT INTO repartidores (nombre) VALUES (?)", [
+      String(nombre).trim()
+    ]);
+    res.status(201).json({ id: result.insertId, nombre: String(nombre).trim() });
+  } catch (err) {
+    console.error("Error en POST /repartidores:", err);
+    res.status(500).send("Error de DB");
+  }
+});
 
-	for (let i = 0; i < pedidosPost.pedido.length; i++) {
-		let serializado = JSON.stringify(pedidosPost.pedido[i])
-		if (detalle == "") detalle = serializado;
-		else detalle = detalle + `,` + serializado;
-	}
-	pedidosPost = "";
-	conection.query(`UPDATE pedidos SET cliente = '${cliente}', detalle = '${detalle}', importe = '${importe}', detalleTicket = '${detalleTicket}', cantidad = '${cantidad}' WHERE pedidos.id = ${id}`, (err, rows) => {
-		if (err) throw err;
-		else
-			console.log("los nuevos datos se actualizaron correctamente")
-	})
-	pedidos = [];
-}
+app.put("/repartidores/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre } = req.body || {};
+    if (!nombre) return res.status(400).send("Falta el nombre");
+    await queryAsync("UPDATE repartidores SET nombre = ? WHERE id = ?", [
+      String(nombre).trim().toUpperCase(),
+      id
+    ]);
+    res.status(200).send("Repartidor actualizado");
+  } catch (err) {
+    console.error("Error en PUT /repartidores/:id:", err);
+    res.status(500).send("Error al actualizar");
+  }
+});
 
+app.delete("/repartidores/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await queryAsync("DELETE FROM repartidores WHERE id = ?", [id]);
+    res.status(200).send("Repartidor eliminado");
+  } catch (err) {
+    console.error("Error en DELETE /repartidores/:id:", err);
+    res.status(500).send("Error al eliminar repartidor");
+  }
+});
 
-// conection.end();
+// --- CONFIGURACIÓN GENERAL ---
+app.get("/configuracion", async (req, res) => {
+  try {
+    const rows = await queryAsync("SELECT * FROM configuracion");
+    res.json(rows);
+  } catch (err) {
+    console.error("Error en GET /configuracion:", err);
+    res.status(500).send("Error de servidor");
+  }
+});
+
+app.post("/configuracion", async (req, res) => {
+  try {
+    const { atributo, valor, tipo } = req.body || {};
+    if (!atributo || valor === undefined || !tipo) {
+      return res.status(400).send("Faltan datos: atributo, valor y tipo son obligatorios");
+    }
+
+    const atr = String(atributo).trim().toUpperCase();
+    const tip = String(tipo).trim().toLowerCase();
+    const val = String(valor);
+
+    const result = await queryAsync(
+      `INSERT INTO configuracion (atributo, valor, tipo)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE valor = VALUES(valor), tipo = VALUES(tipo)`,
+      [atr, val, tip]
+    );
+
+    const status = result.affectedRows === 1 ? 201 : 200;
+    res.status(status).json({
+      id: result.insertId || null,
+      atributo: atr,
+      valor: val,
+      tipo: tip
+    });
+  } catch (err) {
+    console.error("Error en POST /configuracion:", err);
+    res.status(500).send("Error de base de datos");
+  }
+});
+
+app.delete("/configuracion/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await queryAsync("DELETE FROM configuracion WHERE id = ?", [id]);
+    res.status(200).send("Configuración eliminada");
+  } catch (err) {
+    console.error("Error en DELETE /configuracion/:id:", err);
+    res.status(500).send("Error al eliminar");
+  }
+});
+
+// --- CATEGORÍAS DE PRODUCTOS ---
+app.get("/:product", async (req, res) => {
+  const { product } = req.params;
+  if (!CATEGORIAS_PERMITIDAS.has(product)) {
+    return res.status(404).json({ message: "no se obtuvo respuesta..." });
+  }
+  try {
+    const rows = await queryAsync(`SELECT * FROM ${product}`);
+    res.json(rows);
+  } catch (err) {
+    console.error(`Error en GET /${product}:`, err);
+    res.status(500).send("Error de servidor");
+  }
+});
+
+app.post("/:product", async (req, res) => {
+  const { product } = req.params;
+  if (!CATEGORIAS_PERMITIDAS.has(product)) {
+    return res.status(404).json({ message: "Categoría no válida" });
+  }
+  const { nombre, precio } = req.body || {};
+  if (!nombre || precio === undefined) {
+    return res.status(400).send("Faltan datos");
+  }
+  try {
+    const result = await queryAsync(
+      `INSERT INTO ${product} (nombre, precio) VALUES (?, ?)`,
+      [String(nombre).trim(), precio]
+    );
+    res.status(201).json({ id: result.insertId, nombre: String(nombre).trim(), precio });
+  } catch (err) {
+    console.error(`Error en POST /${product}:`, err);
+    res.status(500).send("Error al insertar");
+  }
+});
+
+app.put("/:product/:id", async (req, res) => {
+  const { product, id } = req.params;
+  if (!CATEGORIAS_PERMITIDAS.has(product)) {
+    return res.status(404).json({ message: "Categoría no válida" });
+  }
+  try {
+    const nuevoPrecio = req.body?.precio;
+    await queryAsync(`UPDATE ${product} SET precio = ? WHERE id = ?`, [nuevoPrecio, id]);
+    res.json(req.body);
+  } catch (err) {
+    console.error(`Error en PUT /${product}/${id}:`, err);
+    res.status(500).send("Error al actualizar precio");
+  }
+});
+
+app.delete("/:product/:id", async (req, res) => {
+  const { product, id } = req.params;
+  if (!CATEGORIAS_PERMITIDAS.has(product)) {
+    return res.status(404).json({ message: "Categoría no válida" });
+  }
+  try {
+    await queryAsync(`DELETE FROM ${product} WHERE id = ?`, [id]);
+    res.status(200).send("Eliminado correctamente");
+  } catch (err) {
+    console.error(`Error en DELETE /${product}/${id}:`, err);
+    res.status(500).send("Error al eliminar");
+  }
+});
+
+app.use((req, res) => {
+  res.status(404).json({
+    message: "no se obtuvo respuesta..."
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`funcionando en el puerto ${PORT}`);
+});
