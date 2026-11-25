@@ -13,6 +13,8 @@ import {
 
 const app = express();
 
+const ZONA_HORARIA = "America/Argentina/Tucuman";
+
 const CATEGORIAS_PERMITIDAS = new Set([
   "milanesas",
   "hamburguesas",
@@ -86,6 +88,34 @@ const parseIdsPausados = (raw) => {
   }
 };
 
+const esHoraCorteExacta = (timeZone = ZONA_HORARIA) => {
+  const partes = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(new Date());
+
+  const hora = Number(partes.find((p) => p.type === "hour")?.value || 0);
+  const minuto = Number(partes.find((p) => p.type === "minute")?.value || 0);
+  return hora === 0 && minuto === 30;
+};
+
+const verificarCorteAutomaticoWeb = async () => {
+  if (!esHoraCorteExacta()) return;
+
+  const rows = await queryAsync(
+    "SELECT id, tienda_abierta FROM configuracion_web WHERE id = 1 LIMIT 1"
+  );
+
+  if (rows.length && Boolean(rows[0].tienda_abierta)) {
+    await queryAsync(
+      "UPDATE configuracion_web SET tienda_abierta = 0 WHERE id = 1"
+    );
+    console.log("[Auto-Cierre] Tienda web deshabilitada a las 00:30.");
+  }
+};
+
 app.get("/", (req, res) => {
   res.send("welcome");
 });
@@ -131,7 +161,7 @@ app.get("/configuracion-web", async (req, res) => {
     const rows = await queryAsync("SELECT * FROM configuracion_web WHERE id = 1 LIMIT 1");
     if (!rows.length) {
       return res.json({
-        tiendaAbierta: true,
+        tiendaAbierta: false,
         envioActivo: true,
         retiroActivo: true,
         mensajeCierre: "Estamos cerrados por el momento. Volvé a intentar más tarde.",
@@ -155,7 +185,7 @@ app.get("/configuracion-web", async (req, res) => {
 app.put("/configuracion-web", async (req, res) => {
   try {
     const {
-      tiendaAbierta = true,
+      tiendaAbierta = false,
       envioActivo = true,
       retiroActivo = true,
       mensajeCierre = "Estamos cerrados por el momento. Volvé a intentar más tarde.",
@@ -554,6 +584,14 @@ app.use((req, res) => {
     message: "no se obtuvo respuesta..."
   });
 });
+
+setInterval(async () => {
+  try {
+    await verificarCorteAutomaticoWeb();
+  } catch (err) {
+    console.error("[Auto-Cierre] Error al verificar horario de corte:", err);
+  }
+}, 60 * 1000);
 
 app.listen(PORT, () => {
   console.log(`funcionando en el puerto ${PORT}`);
