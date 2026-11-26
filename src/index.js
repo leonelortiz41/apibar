@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import mysql2 from "mysql2";
 import express from "express";
 import cors from "cors";
@@ -29,6 +30,25 @@ const CATEGORIAS_PERMITIDAS = new Set([
 const pedidosPorIP = new Map();
 const pedidosPorTelefono = new Map();
 
+// Mapa en memoria sincronizado con la tabla `mesas_tokens` (no se expone en GET /configuracion-web)
+let mapaTokensMesa = new Map();
+
+function generarTokenCorto() {
+  return crypto.randomInt(100000, 999999).toString();
+}
+
+const esTokenMesaValido = (tokenRecibido, tokenVigente) => {
+  const recibido = String(tokenRecibido || "").trim();
+  const vigente = String(tokenVigente || "").trim();
+  if (!recibido || !vigente) return false;
+
+  const bufRecibido = Buffer.from(recibido, "utf8");
+  const bufVigente = Buffer.from(vigente, "utf8");
+  if (bufRecibido.length !== bufVigente.length) return false;
+
+  return crypto.timingSafeEqual(bufRecibido, bufVigente);
+};
+
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -41,14 +61,6 @@ const conection = mysql2.createConnection({
   port: DB_PORT
 });
 
-conection.connect((err) => {
-  if (err) {
-    console.error("Error de conexión a MySQL:", err);
-    process.exit(1);
-  }
-  console.log("La conexión a la base de datos es exitosa");
-});
-
 const queryAsync = (sql, params = []) =>
   new Promise((resolve, reject) => {
     conection.query(sql, params, (err, rows) => {
@@ -56,6 +68,68 @@ const queryAsync = (sql, params = []) =>
       else resolve(rows);
     });
   });
+
+const cargarMapaTokensMesa = async () => {
+  const rows = await queryAsync(
+    "SELECT numero_mesa, token, activa FROM mesas_tokens"
+  );
+  const nuevoMapa = new Map();
+  for (const row of rows) {
+    const num = Number(row.numero_mesa);
+    if (Number.isInteger(num) && num > 0) {
+      nuevoMapa.set(num, {
+        token: String(row.token || "").trim(),
+        activa: Boolean(row.activa)
+      });
+    }
+  }
+  mapaTokensMesa = nuevoMapa;
+  return mapaTokensMesa;
+};
+
+const rotarTokensMesa = async (numeroMesa = null) => {
+  const mesaPuntual =
+    numeroMesa != null && Number.isInteger(Number(numeroMesa)) && Number(numeroMesa) > 0
+      ? Number(numeroMesa)
+      : null;
+
+  if (mesaPuntual !== null) {
+    const nuevoToken = generarTokenCorto();
+    await queryAsync(
+      "UPDATE mesas_tokens SET token = ? WHERE numero_mesa = ?",
+      [nuevoToken, mesaPuntual]
+    );
+    await cargarMapaTokensMesa();
+    return { [String(mesaPuntual)]: nuevoToken };
+  }
+
+  const rows = await queryAsync("SELECT numero_mesa FROM mesas_tokens");
+  const actualizados = {};
+  for (const row of rows) {
+    const num = Number(row.numero_mesa);
+    const nuevoToken = generarTokenCorto();
+    await queryAsync(
+      "UPDATE mesas_tokens SET token = ? WHERE numero_mesa = ?",
+      [nuevoToken, num]
+    );
+    actualizados[String(num)] = nuevoToken;
+  }
+  await cargarMapaTokensMesa();
+  return actualizados;
+};
+
+conection.connect(async (err) => {
+  if (err) {
+    console.error("Error de conexión a MySQL:", err);
+    process.exit(1);
+  }
+  console.log("La conexión a la base de datos es exitosa");
+  try {
+    await cargarMapaTokensMesa();
+  } catch (loadErr) {
+    console.error("Error al cargar mesas_tokens:", loadErr);
+  }
+});
 
 const limpiarTelefono = (tel = "") => String(tel).replace(/\D/g, "");
 
@@ -88,7 +162,7 @@ const parseIdsPausados = (raw) => {
   }
 };
 
-const esHoraCorteExacta = (timeZone = ZONA_HORARIA) => {
+const obtenerHoraMinutoZona = (timeZone = ZONA_HORARIA) => {
   const partes = new Intl.DateTimeFormat("en-GB", {
     timeZone,
     hour: "2-digit",
@@ -96,8 +170,14 @@ const esHoraCorteExacta = (timeZone = ZONA_HORARIA) => {
     hour12: false
   }).formatToParts(new Date());
 
-  const hora = Number(partes.find((p) => p.type === "hour")?.value || 0);
-  const minuto = Number(partes.find((p) => p.type === "minute")?.value || 0);
+  return {
+    hora: Number(partes.find((p) => p.type === "hour")?.value || 0),
+    minuto: Number(partes.find((p) => p.type === "minute")?.value || 0)
+  };
+};
+
+const esHoraCorteExacta = (timeZone = ZONA_HORARIA) => {
+  const { hora, minuto } = obtenerHoraMinutoZona(timeZone);
   return hora === 0 && minuto === 30;
 };
 
@@ -112,7 +192,8 @@ const verificarCorteAutomaticoWeb = async () => {
     await queryAsync(
       "UPDATE configuracion_web SET tienda_abierta = 0 WHERE id = 1"
     );
-    console.log("[Auto-Cierre] Tienda web deshabilitada a las 00:30.");
+    await rotarTokensMesa();
+    console.log("[Auto-Cierre] Tienda web deshabilitada y tokens de mesa rotados a las 00:30.");
   }
 };
 
@@ -159,6 +240,7 @@ app.post("/enviar-reporte", async (req, res) => {
 app.get("/configuracion-web", async (req, res) => {
   try {
     const rows = await queryAsync("SELECT * FROM configuracion_web WHERE id = 1 LIMIT 1");
+
     if (!rows.length) {
       return res.json({
         tiendaAbierta: false,
@@ -189,7 +271,8 @@ app.put("/configuracion-web", async (req, res) => {
       envioActivo = true,
       retiroActivo = true,
       mensajeCierre = "Estamos cerrados por el momento. Volvé a intentar más tarde.",
-      idsPausadosWeb = []
+      idsPausadosWeb = [],
+      rotarTokens = false
     } = req.body || {};
 
     const pausadosLimpios = Array.isArray(idsPausadosWeb) ? idsPausadosWeb : [];
@@ -213,6 +296,10 @@ app.put("/configuracion-web", async (req, res) => {
       ]
     );
 
+    if (rotarTokens) {
+      await rotarTokensMesa();
+    }
+
     res.json({
       ok: true,
       tiendaAbierta: Boolean(tiendaAbierta),
@@ -224,6 +311,21 @@ app.put("/configuracion-web", async (req, res) => {
   } catch (err) {
     console.error("Error en PUT /configuracion-web:", err);
     res.status(500).json({ error: "Error al guardar configuración web" });
+  }
+});
+
+app.post("/configuracion-web/rotar-tokens", async (req, res) => {
+  try {
+    const mesaPuntual = req.body?.mesa ?? null;
+    const tokensActualizados = await rotarTokensMesa(mesaPuntual);
+    res.json({
+      ok: true,
+      tokensActualizados,
+      actualizadoEn: Date.now()
+    });
+  } catch (err) {
+    console.error("Error en POST /configuracion-web/rotar-tokens:", err);
+    res.status(500).json({ error: "Error al rotar tokens de mesa" });
   }
 });
 
@@ -247,25 +349,64 @@ app.post("/pedidos", async (req, res) => {
       return res.status(200).json({ ok: true, ignorado: true });
     }
 
-    // 2. Si viene desde la tienda web, validar teléfono y rate limit
-    const esPedidoWeb = body.origen === "WEB" || body.telefono !== undefined;
-    if (esPedidoWeb) {
-      if (!esTelefonoValido(body.telefono)) {
-        return res.status(400).json({
-          error: "Ingresá un número de teléfono válido con código de área."
+    const esPedidoMesa =
+      String(body.tipoEntrega || "").toUpperCase() === "MESA" ||
+      String(body.origen || "").toUpperCase() === "MESA_QR" ||
+      body.mesa != null;
+
+    const ip =
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.ip ||
+      "sin-ip";
+
+    if (esPedidoMesa) {
+      const numeroMesa = Number.parseInt(String(body.mesa ?? ""), 10);
+      const tokenRecibido = body.token;
+
+      if (!Number.isInteger(numeroMesa) || numeroMesa <= 0 || numeroMesa > 200) {
+        return res.status(400).json({ error: "Número de mesa inválido." });
+      }
+
+      if (mapaTokensMesa.size === 0) {
+        await cargarMapaTokensMesa();
+      }
+
+      const registroMesa = mapaTokensMesa.get(numeroMesa);
+      if (
+        !registroMesa ||
+        !registroMesa.activa ||
+        !esTokenMesaValido(tokenRecibido, registroMesa.token)
+      ) {
+        return res.status(403).json({
+          error: "El código de mesa venció o no es válido. Escaneá el QR de la mesa nuevamente."
         });
       }
 
-      const ip =
-        req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-        req.ip ||
-        "sin-ip";
-      const telLimpio = limpiarTelefono(body.telefono);
-
-      if (registrarIntento(pedidosPorIP, ip) > 3 || registrarIntento(pedidosPorTelefono, telLimpio) > 3) {
+      if (registrarIntento(pedidosPorIP, `mesa:${ip}`) > 10) {
         return res.status(429).json({
-          error: "Se alcanzó el límite de pedidos recientes. Esperá unos minutos o llamá al local."
+          error: "Se alcanzó el límite de pedidos desde esta mesa. Consultá en caja."
         });
+      }
+    } else {
+      // 2. Si viene desde la tienda web (envío o retiro), validar teléfono y rate limit
+      const esPedidoWeb = body.origen === "WEB" || body.telefono !== undefined;
+      if (esPedidoWeb) {
+        if (!esTelefonoValido(body.telefono)) {
+          return res.status(400).json({
+            error: "Ingresá un número de teléfono válido con código de área."
+          });
+        }
+
+        const telLimpio = limpiarTelefono(body.telefono);
+
+        if (
+          registrarIntento(pedidosPorIP, ip) > 3 ||
+          registrarIntento(pedidosPorTelefono, telLimpio) > 3
+        ) {
+          return res.status(429).json({
+            error: "Se alcanzó el límite de pedidos recientes. Esperá unos minutos o llamá al local."
+          });
+        }
       }
     }
 
