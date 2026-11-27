@@ -1,4 +1,7 @@
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import mysql2 from "mysql2";
 import express from "express";
 import cors from "cors";
@@ -11,6 +14,20 @@ import {
   DB_PORT,
   PORT
 } from "./config.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const UPLOADS_ROOT = path.join(__dirname, "uploads");
+const MENU_UPLOADS_DIR = path.join(UPLOADS_ROOT, "menu");
+fs.mkdirSync(MENU_UPLOADS_DIR, { recursive: true });
+
+const MIME_A_EXTENSION = {
+  "image/jpeg": ".jpg",
+  "image/jpg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp"
+};
 
 const app = express();
 
@@ -49,9 +66,75 @@ const esTokenMesaValido = (tokenRecibido, tokenVigente) => {
   return crypto.timingSafeEqual(bufRecibido, bufVigente);
 };
 
+const guardarImagenMenuEnDisco = (inputImagen, categoria, idProducto) => {
+  if (!inputImagen || typeof inputImagen !== "string") {
+    return { error: null, ruta: null };
+  }
+
+  const trimmed = inputImagen.trim();
+  if (trimmed.startsWith("/uploads/menu/")) {
+    return { error: null, ruta: trimmed };
+  }
+
+  let mimeType = "image/webp";
+  let base64Limpio = trimmed;
+
+  const dataUrlMatch = trimmed.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (dataUrlMatch) {
+    mimeType = dataUrlMatch[1].toLowerCase();
+    base64Limpio = dataUrlMatch[2];
+  } else if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return { error: null, ruta: trimmed };
+  }
+
+  const extension = MIME_A_EXTENSION[mimeType];
+  if (!extension) {
+    return {
+      error: "Formato de imagen no permitido. Usá JPG, PNG o WEBP.",
+      ruta: null
+    };
+  }
+
+  const buffer = Buffer.from(base64Limpio, "base64");
+  const maxBytes = 2.5 * 1024 * 1024;
+  if (!buffer.length || buffer.length > maxBytes) {
+    return {
+      error: "La imagen supera el tamaño máximo permitido (2.5 MB).",
+      ruta: null
+    };
+  }
+
+  const nombreArchivo = `${categoria}-${idProducto}-${Date.now()}-${crypto
+    .randomBytes(3)
+    .toString("hex")}${extension}`;
+  const rutaAbsoluta = path.join(MENU_UPLOADS_DIR, nombreArchivo);
+  fs.writeFileSync(rutaAbsoluta, buffer);
+
+  return {
+    error: null,
+    ruta: `/uploads/menu/${nombreArchivo}`
+  };
+};
+
+const eliminarArchivoMenuSiExiste = (rutaRelativa) => {
+  if (!rutaRelativa || typeof rutaRelativa !== "string") return;
+  if (!rutaRelativa.startsWith("/uploads/menu/")) return;
+
+  const nombreSeguro = path.basename(rutaRelativa);
+  const rutaAbsoluta = path.join(MENU_UPLOADS_DIR, nombreSeguro);
+  if (rutaAbsoluta.startsWith(MENU_UPLOADS_DIR) && fs.existsSync(rutaAbsoluta)) {
+    try {
+      fs.unlinkSync(rutaAbsoluta);
+    } catch (err) {
+      console.error("No se pudo eliminar imagen anterior:", err);
+    }
+  }
+};
+
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
+app.use("/uploads", express.static(UPLOADS_ROOT, { maxAge: "7d" }));
 
 const conection = mysql2.createConnection({
   host: DB_HOST,
@@ -233,6 +316,39 @@ app.post("/enviar-reporte", async (req, res) => {
   } catch (error) {
     console.error("Error al enviar correo:", error);
     res.status(500).send(error.message);
+  }
+});
+
+// --- VALIDACIÓN DE MESA AL CARGAR ---
+app.get("/validar-mesa", async (req, res) => {
+  try {
+    const numeroMesa = Number.parseInt(String(req.query?.mesa ?? ""), 10);
+    const tokenRecibido = String(req.query?.token ?? "").trim();
+
+    if (
+      !Number.isInteger(numeroMesa) ||
+      numeroMesa <= 0 ||
+      numeroMesa > 200 ||
+      !tokenRecibido
+    ) {
+      return res.json({ valida: false });
+    }
+
+    if (mapaTokensMesa.size === 0) {
+      await cargarMapaTokensMesa();
+    }
+
+    const registroMesa = mapaTokensMesa.get(numeroMesa);
+    const valida = Boolean(
+      registroMesa &&
+      registroMesa.activa &&
+      esTokenMesaValido(tokenRecibido, registroMesa.token)
+    );
+
+    res.json({ valida });
+  } catch (err) {
+    console.error("Error en GET /validar-mesa:", err);
+    res.status(500).json({ valida: false });
   }
 });
 
@@ -675,16 +791,43 @@ app.post("/:product", async (req, res) => {
   if (!CATEGORIAS_PERMITIDAS.has(product)) {
     return res.status(404).json({ message: "Categoría no válida" });
   }
-  const { nombre, precio } = req.body || {};
-  if (!nombre || precio === undefined) {
+  const { nombre, precio, imagenBase64, imagen } = req.body || {};
+  const nombreLimpio = String(nombre || "").trim();
+  if (!nombreLimpio || precio === undefined) {
     return res.status(400).send("Faltan datos");
   }
+
   try {
     const result = await queryAsync(
-      `INSERT INTO ${product} (nombre, precio) VALUES (?, ?)`,
-      [String(nombre).trim(), precio]
+      `INSERT INTO ${product} (nombre, precio, imagen) VALUES (?, ?, NULL)`,
+      [nombreLimpio, precio]
     );
-    res.status(201).json({ id: result.insertId, nombre: String(nombre).trim(), precio });
+    const nuevoId = result.insertId;
+
+    const entradaImagen = imagenBase64 ?? imagen ?? null;
+    let rutaImagenFinal = null;
+
+    if (entradaImagen) {
+      const guardada = guardarImagenMenuEnDisco(entradaImagen, product, nuevoId);
+      if (guardada.error) {
+        await queryAsync(`DELETE FROM ${product} WHERE id = ?`, [nuevoId]);
+        return res.status(400).json({ error: guardada.error });
+      }
+      rutaImagenFinal = guardada.ruta;
+      if (rutaImagenFinal) {
+        await queryAsync(
+          `UPDATE ${product} SET imagen = ? WHERE id = ?`,
+          [rutaImagenFinal, nuevoId]
+        );
+      }
+    }
+
+    res.status(201).json({
+      id: nuevoId,
+      nombre: nombreLimpio,
+      precio,
+      imagen: rutaImagenFinal
+    });
   } catch (err) {
     console.error(`Error en POST /${product}:`, err);
     res.status(500).send("Error al insertar");
@@ -696,13 +839,57 @@ app.put("/:product/:id", async (req, res) => {
   if (!CATEGORIAS_PERMITIDAS.has(product)) {
     return res.status(404).json({ message: "Categoría no válida" });
   }
+
   try {
-    const nuevoPrecio = req.body?.precio;
-    await queryAsync(`UPDATE ${product} SET precio = ? WHERE id = ?`, [nuevoPrecio, id]);
-    res.json(req.body);
+    const rows = await queryAsync(
+      `SELECT id, nombre, precio, imagen FROM ${product} WHERE id = ? LIMIT 1`,
+      [id]
+    );
+    if (!rows.length) {
+      return res.status(404).json({ error: "Producto no encontrado" });
+    }
+    const actual = rows[0];
+    const body = req.body || {};
+
+    const nuevoNombre =
+      body.nombre !== undefined ? String(body.nombre).trim() : actual.nombre;
+    const nuevoPrecio =
+      body.precio !== undefined ? body.precio : actual.precio;
+
+    let nuevaImagen = actual.imagen;
+    const entradaImagen = body.imagenBase64 ?? body.imagen;
+
+    if (body.quitarImagen === true || entradaImagen === "") {
+      eliminarArchivoMenuSiExiste(actual.imagen);
+      nuevaImagen = null;
+    } else if (typeof entradaImagen === "string" && entradaImagen.trim() !== "") {
+      if (entradaImagen.trim() !== actual.imagen) {
+        const guardada = guardarImagenMenuEnDisco(entradaImagen, product, id);
+        if (guardada.error) {
+          return res.status(400).json({ error: guardada.error });
+        }
+        if (guardada.ruta && guardada.ruta !== actual.imagen) {
+          eliminarArchivoMenuSiExiste(actual.imagen);
+          nuevaImagen = guardada.ruta;
+        }
+      }
+    }
+
+    await queryAsync(
+      `UPDATE ${product} SET nombre = ?, precio = ?, imagen = ? WHERE id = ?`,
+      [nuevoNombre, nuevoPrecio, nuevaImagen, id]
+    );
+
+    res.json({
+      ...body,
+      id: Number(id) || id,
+      nombre: nuevoNombre,
+      precio: nuevoPrecio,
+      imagen: nuevaImagen
+    });
   } catch (err) {
     console.error(`Error en PUT /${product}/${id}:`, err);
-    res.status(500).send("Error al actualizar precio");
+    res.status(500).send("Error al actualizar producto");
   }
 });
 
@@ -712,7 +899,14 @@ app.delete("/:product/:id", async (req, res) => {
     return res.status(404).json({ message: "Categoría no válida" });
   }
   try {
+    const rows = await queryAsync(
+      `SELECT imagen FROM ${product} WHERE id = ? LIMIT 1`,
+      [id]
+    );
     await queryAsync(`DELETE FROM ${product} WHERE id = ?`, [id]);
+    if (rows.length && rows[0].imagen) {
+      eliminarArchivoMenuSiExiste(rows[0].imagen);
+    }
     res.status(200).send("Eliminado correctamente");
   } catch (err) {
     console.error(`Error en DELETE /${product}/${id}:`, err);
