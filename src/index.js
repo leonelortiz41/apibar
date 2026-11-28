@@ -791,16 +791,20 @@ app.post("/:product", async (req, res) => {
   if (!CATEGORIAS_PERMITIDAS.has(product)) {
     return res.status(404).json({ message: "Categoría no válida" });
   }
-  const { nombre, precio, imagenBase64, imagen } = req.body || {};
+  const { nombre, precio, descripcion, imagenBase64, imagen } = req.body || {};
   const nombreLimpio = String(nombre || "").trim();
   if (!nombreLimpio || precio === undefined) {
     return res.status(400).send("Faltan datos");
   }
+  const descripcionLimpia =
+    descripcion !== undefined && String(descripcion).trim() !== ""
+      ? String(descripcion).trim()
+      : null;
 
   try {
     const result = await queryAsync(
-      `INSERT INTO ${product} (nombre, precio, imagen) VALUES (?, ?, NULL)`,
-      [nombreLimpio, precio]
+      `INSERT INTO ${product} (nombre, precio, descripcion, imagen) VALUES (?, ?, ?, NULL)`,
+      [nombreLimpio, precio, descripcionLimpia]
     );
     const nuevoId = result.insertId;
 
@@ -826,6 +830,7 @@ app.post("/:product", async (req, res) => {
       id: nuevoId,
       nombre: nombreLimpio,
       precio,
+      descripcion: descripcionLimpia,
       imagen: rutaImagenFinal
     });
   } catch (err) {
@@ -842,7 +847,7 @@ app.put("/:product/:id", async (req, res) => {
 
   try {
     const rows = await queryAsync(
-      `SELECT id, nombre, precio, imagen FROM ${product} WHERE id = ? LIMIT 1`,
+      `SELECT id, nombre, precio, descripcion, imagen FROM ${product} WHERE id = ? LIMIT 1`,
       [id]
     );
     if (!rows.length) {
@@ -855,11 +860,15 @@ app.put("/:product/:id", async (req, res) => {
       body.nombre !== undefined ? String(body.nombre).trim() : actual.nombre;
     const nuevoPrecio =
       body.precio !== undefined ? body.precio : actual.precio;
+    const nuevaDescripcion =
+      body.descripcion !== undefined
+        ? (String(body.descripcion).trim() || null)
+        : actual.descripcion;
 
     let nuevaImagen = actual.imagen;
     const entradaImagen = body.imagenBase64 ?? body.imagen;
 
-    if (body.quitarImagen === true || entradaImagen === "") {
+    if (body.quitarImagen === true || body.imagen === null || entradaImagen === "") {
       eliminarArchivoMenuSiExiste(actual.imagen);
       nuevaImagen = null;
     } else if (typeof entradaImagen === "string" && entradaImagen.trim() !== "") {
@@ -876,8 +885,8 @@ app.put("/:product/:id", async (req, res) => {
     }
 
     await queryAsync(
-      `UPDATE ${product} SET nombre = ?, precio = ?, imagen = ? WHERE id = ?`,
-      [nuevoNombre, nuevoPrecio, nuevaImagen, id]
+      `UPDATE ${product} SET nombre = ?, precio = ?, descripcion = ?, imagen = ? WHERE id = ?`,
+      [nuevoNombre, nuevoPrecio, nuevaDescripcion, nuevaImagen, id]
     );
 
     res.json({
@@ -885,6 +894,7 @@ app.put("/:product/:id", async (req, res) => {
       id: Number(id) || id,
       nombre: nuevoNombre,
       precio: nuevoPrecio,
+      descripcion: nuevaDescripcion,
       imagen: nuevaImagen
     });
   } catch (err) {
